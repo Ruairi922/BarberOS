@@ -12,7 +12,8 @@ from .models import Shop, Service, Barber, WeeklyHours, HoursException, Appointm
 from .scheduling import slots, effective_hours
 
 # Demo only: replace shared admin token with authenticated membership/RBAC before deployment.
-ADMIN_TOKEN = os.getenv('DEMO_ADMIN_TOKEN', 'local-demo-only')
+ADMIN_ENABLED = os.getenv("ADMIN_ENABLED", "false").lower() == "true"
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")
 
 @asynccontextmanager
 async def lifespan(app):
@@ -30,11 +31,29 @@ def get_shop(slug: str, db: Session):
     if not shop: raise HTTPException(404, 'Shop not found')
     return shop
 
-def require_admin(x_admin_token: str | None = Header(default=None)):
-    if os.getenv('APP_ENV','local') != 'local' and ADMIN_TOKEN == 'local-demo-only':
-        raise HTTPException(503, 'Demo token disabled outside local development')
-    if x_admin_token != ADMIN_TOKEN: raise HTTPException(401, 'Admin access required')
+import secrets
 
+def require_admin(x_admin_token: str | None = Header(default=None)):
+    if not ADMIN_ENABLED:
+        raise HTTPException(
+            status_code=403,
+            detail="Admin API is disabled"
+        )
+
+    if not ADMIN_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="Admin authentication is not configured"
+        )
+
+    if not x_admin_token or not secrets.compare_digest(
+        x_admin_token,
+        ADMIN_TOKEN
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized"
+        )
 class DayHours(BaseModel):
     weekday: int = Field(ge=0, le=6)
     enabled: bool
