@@ -16,27 +16,14 @@ ADMIN_TOKEN = os.getenv('DEMO_ADMIN_TOKEN', 'local-demo-only')
 
 @asynccontextmanager
 async def lifespan(app):
-    Base.metadata.create_all(bind=engine) # Production: replace with Alembic migrations.
+    Base.metadata.create_all(bind=engine)  # MVP only; migrate to Alembic before production.
+    from .seed import seed_aaron
     with next(db_session()) as db:
-        if not db.scalar(select(Shop).where(Shop.slug == 'northside')):
-            shop = Shop(slug='northside', name='NORTHSIDE', tagline='Look sharp. Feel different.', address='42 South William Street, Dublin 2')
-            db.add(shop); db.flush()
-            db.add_all([
-                Service(shop_id=shop.id, name='Signature Cut', description='A precision haircut, styled to perfection.', duration_min=30, price_cents=2800),
-                Service(shop_id=shop.id, name='Skin Fade', description='Sharp details, seamless finish.', duration_min=45, price_cents=3500),
-                Service(shop_id=shop.id, name='Beard Sculpt', description='Shape, trim and razor finish.', duration_min=20, price_cents=1800),
-                Service(shop_id=shop.id, name='The Full Works', description='Cut, beard and finishing treatment.', duration_min=60, price_cents=5000),
-                Barber(shop_id=shop.id, name='Alex Morgan', role='Master Barber'),
-                Barber(shop_id=shop.id, name='Jamie Reid', role='Senior Barber'),
-                Barber(shop_id=shop.id, name='Ryan Cole', role='Barber'),
-            ])
-            for i in range(7):
-                db.add(WeeklyHours(shop_id=shop.id, weekday=i, enabled=i != 6, opens=time(9), closes=time(16) if i == 5 else time(18)))
-            db.commit()
+        seed_aaron(db)
     yield
 
-app = FastAPI(title='BarberOS API', version='0.1.0', lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=os.getenv('CORS_ORIGINS', 'http://localhost:5173').split(','), allow_credentials=False, allow_methods=['GET','PUT','POST'], allow_headers=['*'])
+app = FastAPI(title='BarberOS API', version='0.2.0', lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=os.getenv('CORS_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173').split(','), allow_credentials=False, allow_methods=['GET','PUT','POST','DELETE'], allow_headers=['*'])
 
 def get_shop(slug: str, db: Session):
     shop = db.scalar(select(Shop).where(Shop.slug == slug))
@@ -44,6 +31,8 @@ def get_shop(slug: str, db: Session):
     return shop
 
 def require_admin(x_admin_token: str | None = Header(default=None)):
+    if os.getenv('APP_ENV','local') != 'local' and ADMIN_TOKEN == 'local-demo-only':
+        raise HTTPException(503, 'Demo token disabled outside local development')
     if x_admin_token != ADMIN_TOKEN: raise HTTPException(401, 'Admin access required')
 
 class DayHours(BaseModel):
@@ -60,6 +49,13 @@ class ExceptionPayload(BaseModel):
     enabled: bool
     opens: time | None = None
     closes: time | None = None
+
+class ServicePayload(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    description: str = Field(default='', max_length=250)
+    duration_min: int = Field(ge=10, le=240)
+    price_cents: int = Field(ge=0, le=100000)
+    active: bool = True
 
 class BookingPayload(BaseModel):
     service_id: int
@@ -149,3 +145,55 @@ def update_exception(slug: str, payload: ExceptionPayload, db: Session = Depends
     else: db.add(HoursException(shop_id=shop.id, **payload.model_dump()))
     db.commit()
     return {'ok':True}
+
+
+@app.get('/api/shops/{slug}/exceptions', dependencies=[Depends(require_admin)])
+def list_exceptions(slug: str, db: Session = Depends(db_session)):
+    shop = get_shop(slug, db)
+    records = db.scalars(select(HoursException).where(HoursException.shop_id == shop.id, HoursException.day >= date.today()).order_by(HoursException.day)).all()
+    return [{'day':x.day.isoformat(),'enabled':x.enabled,'opens':x.opens.strftime('%H:%M') if x.opens else None,'closes':x.closes.strftime('%H:%M') if x.closes else None} for x in records]
+
+@app.delete('/api/shops/{slug}/exceptions/{exception_day}', dependencies=[Depends(require_admin)])
+def remove_exception(slug: str, exception_day: date, db: Session = Depends(db_session)):
+    shop = get_shop(slug, db)
+    item = db.scalar(select(HoursException).where(HoursException.shop_id == shop.id, HoursException.day == exception_day))
+    if not item:
+        raise HTTPException(404, 'Special hours not found')
+    db.delete(item)
+    db.commit()
+    return {'ok':True}
+
+@app.post('/api/shops/{slug}/services', dependencies=[Depends(require_admin)], status_code=201)
+def add_service(slug: str, payload: ServicePayload, db: Session = Depends(db_session)):
+    shop = get_shop(slug, db)
+    service = Service(shop_id=shop.id, **payload.model_dump())
+    db.add(service); db.commit(); db.refresh(service)
+    return {'id':service.id,'ok':True}
+
+@app.put('/api/shops/{slug}/services/{service_id}', dependencies=[Depends(require_admin)])
+def update_service(slug: str, service_id: int, payload: ServicePayload, db: Session = Depends(db_session)):
+    shop = get_shop(slug, db)
+    service = db.scalar(select(Service).where(Service.shop_id == shop.id, Service.id == service_id))
+    if not service:
+        raise HTTPException(404, 'Service not found')
+    for key,value in payload.model_dump().items():
+        setattr(service,key,value)
+    db.commit()
+    return {'ok':True}
+
+@app.put('/api/shops/{slug}/appointments/{appointment_id}/cancel', dependencies=[Depends(require_admin)])
+def cancel_appointment(slug: str, appointment_id: int, db: Session = Depends(db_session)):
+    shop = get_shop(slug, db)
+    booking = db.scalar(select(Appointment).where(Appointment.shop_id == shop.id, Appointment.id == appointment_id))
+    if not booking:
+        raise HTTPException(404, 'Appointment not found')
+    booking.status = 'cancelled'
+    db.commit()
+    return {'ok':True}
+
+
+@app.get('/api/shops/{slug}/admin/services', dependencies=[Depends(require_admin)])
+def admin_services(slug: str, db: Session = Depends(db_session)):
+    shop = get_shop(slug, db)
+    records = db.scalars(select(Service).where(Service.shop_id == shop.id).order_by(Service.id)).all()
+    return [{'id':s.id,'name':s.name,'description':s.description,'duration_min':s.duration_min,'price_cents':s.price_cents,'active':s.active} for s in records]
