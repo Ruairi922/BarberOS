@@ -1,7 +1,7 @@
 // One reusable API adapter: swap the slug to onboard another business.
 const BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 const SLUG = import.meta.env.VITE_SHOP_SLUG || 'aaron-binions';
-// Frontend admin token exists ONLY in local dev bundles; production needs real auth.
+// Session token is memory-only and disappears on refresh or tab close.
 let adminToken = '';
 
 export function setAdminToken(token) {
@@ -17,7 +17,7 @@ export async function api(path = '', options = {}) {
     ...rest,
     headers: {
       'Content-Type': 'application/json',
-      ...(admin ? { 'X-Admin-Token': adminToken } : {}),
+      ...(admin ? { 'Authorization': `Bearer ${adminToken}` } : {}),
       ...(rest.headers || {}),
     },
   });
@@ -38,3 +38,9 @@ export const addService = (service) => api('/services', {admin:true,method:'POST
 export const updateService = (id,service) => api(`/services/${id}`, {admin:true,method:'PUT',body:JSON.stringify(service)});
 
 export const getAdminServices = () => api('/admin/services',{admin:true});
+
+export async function loginAdmin(username, password) {
+  const res = await api('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+  setAdminToken(res.access_token);
+  return res;
+}

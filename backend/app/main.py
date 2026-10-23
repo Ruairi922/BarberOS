@@ -11,9 +11,11 @@ from .database import Base, engine, db_session
 from .models import Shop, Service, Barber, WeeklyHours, HoursException, Appointment
 from .scheduling import slots, effective_hours
 
-# Demo only: replace shared admin token with authenticated membership/RBAC before deployment.
+# Single-studio pilot; replace with account-level auth before multi-tenant launch.
 ADMIN_ENABLED = os.getenv("ADMIN_ENABLED", "false").lower() == "true"
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")
+ADMIN_LOGIN_USERNAME = os.getenv("ADMIN_LOGIN_USERNAME", "Aaron")
+ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
+ADMIN_SESSION_SECRET = os.getenv("ADMIN_SESSION_SECRET", "")
 
 @asynccontextmanager
 async def lifespan(app):
@@ -31,29 +33,92 @@ def get_shop(slug: str, db: Session):
     if not shop: raise HTTPException(404, 'Shop not found')
     return shop
 
-import secrets
+import base64
+import hashlib
+import hmac
+import json
+import threading
+import time as clock
+from fastapi import Request
 
-def require_admin(x_admin_token: str | None = Header(default=None)):
-    if not ADMIN_ENABLED:
-        raise HTTPException(
-            status_code=403,
-            detail="Admin API is disabled"
-        )
+LOGIN_ATTEMPTS = {}
+LOGIN_LOCK = threading.Lock()
 
-    if not ADMIN_TOKEN:
-        raise HTTPException(
-            status_code=503,
-            detail="Admin authentication is not configured"
-        )
+class LoginPayload(BaseModel):
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=256)
 
-    if not x_admin_token or not secrets.compare_digest(
-        x_admin_token,
-        ADMIN_TOKEN
-    ):
-        raise HTTPException(
-            status_code=401,
-            detail="Unauthorized"
-        )
+def _configured():
+    return bool(ADMIN_ENABLED and ADMIN_PASSWORD_HASH and len(ADMIN_SESSION_SECRET) >= 32)
+
+def _password_ok(password: str) -> bool:
+    try:
+        algorithm, iterations, salt, digest = ADMIN_PASSWORD_HASH.split("$")
+        if algorithm != "pbkdf2_sha256" or int(iterations) < 300000:
+            return False
+        attempt = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), int(iterations))
+        return hmac.compare_digest(attempt, bytes.fromhex(digest))
+    except (ValueError, TypeError):
+        return False
+
+def _sign(raw: bytes) -> bytes:
+    return hmac.new(ADMIN_SESSION_SECRET.encode(), raw, hashlib.sha256).digest()
+
+def _enc(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+def _dec(encoded: str) -> bytes:
+    return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+
+def require_admin(request: Request):
+    if not _configured():
+        raise HTTPException(status_code=503, detail="Admin login unavailable")
+    authorization = request.headers.get("Authorization", "")
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        raw_part, sig_part = authorization[7:].split(".", 1)
+        raw = _dec(raw_part)
+        if not hmac.compare_digest(_sign(raw), _dec(sig_part)):
+            raise ValueError("Invalid signature")
+        payload = json.loads(raw)
+        if (payload.get("sub") != ADMIN_LOGIN_USERNAME
+            or payload.get("shop") != "aaron-binions"
+            or payload.get("version") != hashlib.sha256(ADMIN_PASSWORD_HASH.encode()).hexdigest()[:16]
+            or int(payload.get("exp", 0)) <= int(clock.time())):
+            raise ValueError("Expired or invalid")
+    except (ValueError, KeyError, TypeError, UnicodeDecodeError):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+@app.post("/api/shops/{slug}/auth/login")
+def login(slug: str, credentials: LoginPayload, request: Request):
+    if slug != "aaron-binions":
+        raise HTTPException(404, "Shop not found")
+    if not _configured():
+        raise HTTPException(status_code=503, detail="Admin login unavailable")
+    # Pilot throttle, in-memory per instance; add shared rate limiting for production.
+    client = request.client.host if request.client else "unknown"
+    now = clock.monotonic()
+    with LOGIN_LOCK:
+        recent = [t for t in LOGIN_ATTEMPTS.get(client, []) if now - t < 900]
+        LOGIN_ATTEMPTS[client] = recent
+        if len(recent) >= 5:
+            raise HTTPException(status_code=429, detail="Too many login attempts; try later")
+    valid_user = hmac.compare_digest(credentials.username.casefold(), ADMIN_LOGIN_USERNAME.casefold())
+    valid_password = _password_ok(credentials.password)
+    if not (valid_user and valid_password):
+        with LOGIN_LOCK:
+            LOGIN_ATTEMPTS.setdefault(client, []).append(now)
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    with LOGIN_LOCK:
+        LOGIN_ATTEMPTS.pop(client, None)
+    raw = json.dumps({
+        "sub": ADMIN_LOGIN_USERNAME, "shop": slug,
+        "exp": int(clock.time()) + 3600,
+        "version": hashlib.sha256(ADMIN_PASSWORD_HASH.encode()).hexdigest()[:16]
+    }, separators=(",", ":")).encode()
+    return {"access_token": _enc(raw) + "." + _enc(_sign(raw)), "expires_in": 3600}
+
 class DayHours(BaseModel):
     weekday: int = Field(ge=0, le=6)
     enabled: bool

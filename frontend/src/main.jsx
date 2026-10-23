@@ -5,7 +5,7 @@ import { LockKeyhole, LogOut, ArrowLeft } from 'lucide-react';
 import {
   getShop,
   getAdminServices,
-  setAdminToken,
+  loginAdmin,
   clearAdminToken,
 } from './api';
 
@@ -21,7 +21,8 @@ function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [authenticated, setAuthenticated] = useState(false);
-  const [accessKey, setAccessKey] = useState('');
+  const [username, setUsername] = useState('Aaron');
+  const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loadingLogin, setLoadingLogin] = useState(false);
 
@@ -48,16 +49,14 @@ function App() {
     setLoadingLogin(true);
 
     try {
-      setAdminToken(accessKey.trim());
-
-      // Verifies the key against an authenticated backend endpoint.
+      await loginAdmin(username.trim(), password);
       await getAdminServices();
 
       setAuthenticated(true);
-      setAccessKey('');
+      setPassword('');
     } catch (err) {
       clearAdminToken();
-      setLoginError('Invalid access key or admin access unavailable.');
+      setLoginError('Invalid credentials or admin login unavailable.');
     } finally {
       setLoadingLogin(false);
     }
@@ -66,7 +65,7 @@ function App() {
   const logout = () => {
     clearAdminToken();
     setAuthenticated(false);
-    setAccessKey('');
+    setPassword('');
   };
 
   if (error || !data) {
@@ -108,19 +107,14 @@ function App() {
               BarberOS Management
             </p>
 
-            <label htmlFor="admin-key">
-              ACCESS KEY
-            </label>
+            <label htmlFor="admin-username">USERNAME</label>
+            <input id="admin-username" type="text" autoComplete="username"
+              value={username} onChange={(e) => setUsername(e.target.value)} required />
 
-            <input
-              id="admin-key"
-              type="password"
-              autoComplete="off"
-              placeholder="Enter your access key"
-              value={accessKey}
-              onChange={(e) => setAccessKey(e.target.value)}
-              required
-            />
+            <label htmlFor="admin-password" style={{ marginTop: 15 }}>PASSWORD</label>
+            <input id="admin-password" type="password" autoComplete="current-password"
+              placeholder="Enter your password" value={password}
+              onChange={(e) => setPassword(e.target.value)} required />
 
             {loginError && (
               <div className="admin-login-error" role="alert">
@@ -130,7 +124,7 @@ function App() {
 
             <button
               type="submit"
-              disabled={loadingLogin || !accessKey.trim()}
+              disabled={loadingLogin || !username.trim() || !password}
             >
               {loadingLogin ? 'Checking…' : 'Sign in'}
             </button>
