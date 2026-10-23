@@ -372,7 +372,8 @@ export default function Storefront({ data }) {
             </div>
 
           </div>
-        </section>
+        </section>  
+        
 
         {/* REVIEWS */}
 <section
