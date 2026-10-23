@@ -282,3 +282,133 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .v3-mobile-book {display:flex;position:fixed;bottom:12px;left:12px;right:12px;z-index:35;align-items:center;justify-content:center;gap:10px;height:53px;border:1px solid #bcd5fc;background:#d9e9ff;color:#0c2444;font-weight:800;font-size:13px;border-radius:6px;box-shadow:0 9px 30px #04122260;}
 }
 @media(prefers-reduced-motion:reduce){.v3-button,.v3-service {transition:none;}}
+
+
+/* BarberOS admin login */
+
+.admin-login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 10%, #17365d, transparent 55%),
+    #08182e;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.admin-login-card {
+  width: 100%;
+  max-width: 420px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 38px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 80px #0004;
+}
+
+.admin-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  color: #62738d;
+  font-size: 12px;
+  margin-bottom: 35px;
+}
+
+.admin-login-mark {
+  font: 800 48px Manrope, sans-serif;
+  letter-spacing: -5px;
+  color: #102a4b;
+}
+
+.admin-login-mark span {
+  color: #789fda;
+}
+
+.admin-login-icon {
+  margin-top: 30px;
+  color: #315c90;
+}
+
+.admin-login-card h1 {
+  font: 800 30px Manrope, sans-serif;
+  letter-spacing: -1px;
+  margin: 12px 0;
+  color: #102a4b;
+}
+
+.admin-login-card p {
+  color: #71829b;
+  line-height: 1.6;
+  font-size: 14px;
+  margin-bottom: 30px;
+}
+
+.admin-login-card label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #314c70;
+  margin-bottom: 9px;
+}
+
+.admin-login-card input {
+  width: 100%;
+  padding: 15px;
+  border: 1px solid #d2ddea;
+  border-radius: 6px;
+  background: #f8fafd;
+  font-size: 15px;
+}
+
+.admin-login-card > button {
+  margin-top: 17px;
+  background: #102a4b;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 16px;
+  font-weight: 750;
+}
+
+.admin-login-card > button:hover {
+  background: #244e7d;
+}
+
+.admin-login-card small {
+  text-align: center;
+  margin-top: 22px;
+  color: #8a9aaf;
+}
+
+.admin-login-error {
+  margin-top: 12px;
+  color: #a52e38;
+  font-size: 12px;
+}
+
+.admin-session-bar {
+  background: #08182e;
+  color: #dce9ff;
+  padding: 12px 25px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-session-bar button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  color: white;
+  border: 1px solid #365477;
+  border-radius: 5px;
+  padding: 8px 12px;
+}

@@ -2,15 +2,22 @@
 const BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 const SLUG = import.meta.env.VITE_SHOP_SLUG || 'aaron-binions';
 // Frontend admin token exists ONLY in local dev bundles; production needs real auth.
-const DEMO_TOKEN = import.meta.env.DEV ? (import.meta.env.VITE_DEMO_ADMIN_TOKEN || 'local-demo-only') : '';
+let adminToken = '';
 
+export function setAdminToken(token) {
+  adminToken = token;
+}
+
+export function clearAdminToken() {
+  adminToken = '';
+}
 export async function api(path = '', options = {}) {
   const { admin = false, ...rest } = options;
   const response = await fetch(`${BASE}/api/shops/${encodeURIComponent(SLUG)}${path}`, {
     ...rest,
     headers: {
       'Content-Type': 'application/json',
-      ...(admin ? { 'X-Admin-Token': DEMO_TOKEN } : {}),
+      ...(admin ? { 'X-Admin-Token': adminToken } : {}),
       ...(rest.headers || {}),
     },
   });
